@@ -2,6 +2,7 @@ import streamlit as st
 import pandas as pd
 import pandas_ta as ta
 import datetime as dt
+import pytz
 import requests
 import time
 import json
@@ -12,6 +13,9 @@ from email.mime.text import MIMEText
 # --- Page Config ---
 st.set_page_config(page_title="Upstox Algo Scanner", layout="wide")
 st.title("📈 Live Upstox Algo Scanner")
+
+# --- Timezone Setup ---
+IST = pytz.timezone('Asia/Kolkata')
 
 # --- Secrets & Configuration ---
 try:
@@ -59,22 +63,25 @@ def log_completed_trade(trade_record):
 if 'active_trades' not in st.session_state:
     st.session_state.active_trades = load_state()
 
-# --- Market Hours Gatekeeper ---
+# --- Market Hours Gatekeeper (IST) ---
 def is_market_open(category):
-    now = dt.datetime.now()
-    if now.weekday() > 4: return False # Weekends
-    curr_time = now.time()
+    now_ist = dt.datetime.now(IST)
+    if now_ist.weekday() > 4: return False # Weekends (Sat=5, Sun=6)
+    
+    curr_time = now_ist.time()
+    
     if category in ['Equity', 'Index']:
+        # NSE/BSE: 09:15 to 15:30 IST
         return dt.time(9, 15) <= curr_time <= dt.time(15, 30)
     elif category == 'Commodity':
+        # MCX: 09:00 to 23:30 IST
         return dt.time(9, 0) <= curr_time <= dt.time(23, 30)
     return False
 
-# --- Caching Instruments (Crucial for Web App Performance) ---
-@st.cache_data(ttl=3600) # Cache for 1 hour to prevent API bans
+# --- Caching Instruments ---
+@st.cache_data(ttl=3600) 
 def get_all_instruments():
     instruments = []
-    # 1. Equity
     if os.path.exists('fno_with_sectors.csv'):
         df = pd.read_csv('fno_with_sectors.csv')
         for symbol in df['Symbol'].dropna():
@@ -86,7 +93,6 @@ def get_all_instruments():
             except: pass
             time.sleep(0.1)
     
-    # 2. Futures
     targets = [
         {"query": "NIFTY", "segment": "NSE_FO", "category": "Index"},
         {"query": "SENSEX", "segment": "BSE_FO", "category": "Index"},
@@ -113,8 +119,9 @@ def get_all_instruments():
     return instruments
 
 def fetch_recent_1m_data(instrument_key):
-    to_date = dt.datetime.now().strftime('%Y-%m-%d')
-    from_date = (dt.datetime.now() - dt.timedelta(days=5)).strftime('%Y-%m-%d')
+    now_ist = dt.datetime.now(IST)
+    to_date = now_ist.strftime('%Y-%m-%d')
+    from_date = (now_ist - dt.timedelta(days=5)).strftime('%Y-%m-%d')
     url = f"https://api.upstox.com/v2/historical-candle/{instrument_key}/1minute/{to_date}/{from_date}"
     try:
         res = requests.get(url, headers=headers).json()
@@ -129,12 +136,15 @@ def fetch_recent_1m_data(instrument_key):
 
 # --- Core Scan Logic ---
 def run_live_scan_cycle(instruments):
-    now = dt.datetime.now()
+    now_ist = dt.datetime.now(IST)
     active_trades = st.session_state.active_trades
     
     for inst in instruments:
         category = inst['category']
-        if not is_market_open(category): continue
+        
+        # 1. Skip if market is closed for this category
+        if not is_market_open(category): 
+            continue
             
         symbol = inst['symbol']
         lot_size = inst['lot_size']
@@ -143,7 +153,7 @@ def run_live_scan_cycle(instruments):
         if df1 is None or len(df1) < 100: continue
         current_price = df1['close'].iloc[-1]
         
-        # 1. Check Exits
+        # 2. Check Exits
         if symbol in active_trades:
             trade = active_trades[symbol]
             exit_reason = None
@@ -153,18 +163,17 @@ def run_live_scan_cycle(instruments):
             if exit_reason:
                 pnl = round((current_price - trade['Entry']) * trade['Qty'], 2)
                 completed_trade = trade.copy()
-                completed_trade.update({'Exit Time': now.strftime("%Y-%m-%d %H:%M:%S"), 'Exit Price': current_price, 'Reason': exit_reason, 'PnL': pnl})
+                completed_trade.update({'Exit Time': now_ist.strftime("%Y-%m-%d %H:%M:%S"), 'Exit Price': current_price, 'Reason': exit_reason, 'PnL': pnl})
                 
                 log_completed_trade(completed_trade)
                 del active_trades[symbol]
                 save_state(active_trades)
                 
-                # Send Email Alert
                 body = f"Stock: {symbol}\nExit Price: {current_price}\nReason: {exit_reason}\nRealized PnL: ₹{pnl}"
                 send_email_alert(f"✅ EXIT ALERT: {symbol} ({exit_reason})", body)
             continue 
 
-        # 2. Check Entries
+        # 3. Check Entries
         df5 = df1.resample('5min').agg({'open':'first', 'high':'max', 'low':'min', 'close':'last', 'volume':'sum'}).dropna()
         df15 = df1.resample('15min').agg({'open':'first', 'high':'max', 'low':'min', 'close':'last', 'volume':'sum'}).dropna()
         df60 = df1.resample('60min').agg({'open':'first', 'high':'max', 'low':'min', 'close':'last', 'volume':'sum'}).dropna()
@@ -179,19 +188,31 @@ def run_live_scan_cycle(instruments):
         row15 = past_15m.iloc[-1]
         row60 = past_60m.iloc[-1]
         
-        ubb5 = ta.bbands(df5['close'], length=20, std=2)['BBU_20_2.0'].iloc[-2]
+        # --- FIX: Safety Check for pandas_ta ---
+        bb5 = ta.bbands(df5['close'], length=20, std=2)
+        if bb5 is None or 'BBU_20_2.0' not in bb5.columns: continue
+        ubb5 = bb5['BBU_20_2.0'].iloc[-2]
+        
         sma_vol5 = ta.sma(df5['volume'], length=20).iloc[-2]
         
         bb15 = ta.bbands(df15['close'], length=20, std=2)
+        if bb15 is None or 'BBU_20_2.0' not in bb15.columns: continue
         bb_width15 = ((bb15['BBU_20_2.0'] - bb15['BBL_20_2.0']) / bb15['BBM_20_2.0']).loc[row15.name]
         
         obv15 = ta.obv(df15['close'], df15['volume'])
+        if obv15 is None: continue
         sma_obv15 = ta.sma(obv15, length=20).loc[row15.name]
         
-        atr15 = ta.atr(df15['high'], df15['low'], df15['close'], length=14).loc[row15.name]
-        sma20_60 = ta.sma(df60['close'], length=20).loc[row60.name]
+        atr15 = ta.atr(df15['high'], df15['low'], df15['close'], length=14)
+        if atr15 is None: continue
+        atr15_val = atr15.loc[row15.name]
         
-        cond_1h = row60['close'] > sma20_60
+        sma20_60 = ta.sma(df60['close'], length=20)
+        if sma20_60 is None: continue
+        sma20_60_val = sma20_60.loc[row60.name]
+        # ----------------------------------------
+        
+        cond_1h = row60['close'] > sma20_60_val
         cond_15m_bb = bb_width15 < 0.04
         cond_15m_obv = obv15.loc[row15.name] > sma_obv15
         cond_5m_price = prev_row5['close'] > ubb5
@@ -200,7 +221,7 @@ def run_live_scan_cycle(instruments):
         
         if cond_1h and cond_15m_bb and cond_15m_obv and cond_5m_price and cond_5m_vol and cond_5m_green:
             entry_price = current_price
-            tsl = round(prev_row5['close'] - (3 * atr15), 2)
+            tsl = round(prev_row5['close'] - (3 * atr15_val), 2)
             risk_per_unit = abs(entry_price - tsl)
             
             if risk_per_unit > 0:
@@ -209,31 +230,35 @@ def run_live_scan_cycle(instruments):
                 
                 if qty > 0:
                     active_trades[symbol] = {
-                        'Entry Time': now.strftime("%Y-%m-%d %H:%M:%S"), 'Category': category,
+                        'Entry Time': now_ist.strftime("%Y-%m-%d %H:%M:%S"), 'Category': category,
                         'Stock': symbol, 'Side': 'BUY', 'Qty': qty, 'Entry': entry_price, 
                         'Target': round(entry_price * 1.05, 2), 'TSL': tsl
                     }
                     save_state(active_trades)
                     
-                    # Send Email Alert
                     body = f"Stock: {symbol}\nQuantity: {qty}\nEntry Price: {entry_price}\nTarget: {round(entry_price * 1.05, 2)}\nTSL: {tsl}"
                     send_email_alert(f"🚨 ENTRY ALERT: {symbol}", body)
                     
         time.sleep(0.3) 
     st.session_state.active_trades = active_trades
 
-# --- Streamlit UI Build ---
-st.sidebar.header("Controls")
-if st.sidebar.button("▶️ Start Scanner"):
-    st.session_state.running = True
-if st.sidebar.button("⏹️ Stop Scanner"):
-    st.session_state.running = False
+# --- Streamlit UI & Auto-Run Loop ---
 
-# Download Log Button with Dynamic Timestamp
+# Determine if *any* market is currently open
+any_market_open = is_market_open('Equity') or is_market_open('Index') or is_market_open('Commodity')
+
+st.sidebar.header("System Status")
+if any_market_open:
+    st.sidebar.success(f"🟢 Market Open. Scanning automatically... (Last Ping: {dt.datetime.now(IST).strftime('%H:%M:%S')})")
+else:
+    st.sidebar.warning(f"🔴 Markets Closed. (Current IST: {dt.datetime.now(IST).strftime('%H:%M:%S')})")
+    st.sidebar.info("The system is standing by and will automatically resume scanning when markets open.")
+
+# Download Log Button
 if os.path.exists(HISTORY_FILE):
     df_log = pd.read_csv(HISTORY_FILE)
     csv = df_log.to_csv(index=False)
-    timestamp_str = dt.datetime.now().strftime("%Y%m%d_%H%M%S")
+    timestamp_str = dt.datetime.now(IST).strftime("%Y%m%d_%H%M%S")
     st.sidebar.download_button(
         label="📥 Download Trade History",
         data=csv,
@@ -241,37 +266,37 @@ if os.path.exists(HISTORY_FILE):
         mime="text/csv",
     )
 
-if st.session_state.get('running', False):
-    st.sidebar.success(f"Scanner Running... (Last Updated: {dt.datetime.now().strftime('%H:%M:%S')})")
+# Autonomous Execution Engine
+if any_market_open:
     with st.spinner("Fetching Instruments and Scanning..."):
         instruments = get_all_instruments()
         run_live_scan_cycle(instruments)
-    
-    # Render Dashboards
-    active = st.session_state.active_trades
-    eq_trades = [v for v in active.values() if v['Category'] == 'Equity']
-    idx_trades = [v for v in active.values() if v['Category'] == 'Index']
-    com_trades = [v for v in active.values() if v['Category'] == 'Commodity']
-    
-    col1, col2, col3 = st.columns(3)
-    
-    with col1:
-        st.subheader("📊 Equity")
-        if eq_trades: st.dataframe(pd.DataFrame(eq_trades)[['Stock', 'Qty', 'Entry', 'Target', 'TSL']], hide_index=True)
-        else: st.info("No active equity trades.")
-            
-    with col2:
-        st.subheader("📈 Indices (FO)")
-        if idx_trades: st.dataframe(pd.DataFrame(idx_trades)[['Stock', 'Qty', 'Entry', 'Target', 'TSL']], hide_index=True)
-        else: st.info("No active index trades.")
-            
-    with col3:
-        st.subheader("🛢️ Commodities (FO)")
-        if com_trades: st.dataframe(pd.DataFrame(com_trades)[['Stock', 'Qty', 'Entry', 'Target', 'TSL']], hide_index=True)
-        else: st.info("No active commodity trades.")
-    
-    # Rerun the script every 60 seconds automatically
-    time.sleep(60)
-    st.rerun()
-else:
-    st.info("Scanner is currently stopped. Click 'Start Scanner' in the sidebar to begin monitoring.")
+        
+# Render Dashboards
+active = st.session_state.active_trades
+eq_trades = [v for v in active.values() if v['Category'] == 'Equity']
+idx_trades = [v for v in active.values() if v['Category'] == 'Index']
+com_trades = [v for v in active.values() if v['Category'] == 'Commodity']
+
+col1, col2, col3 = st.columns(3)
+
+with col1:
+    st.subheader("📊 Equity")
+    if eq_trades: st.dataframe(pd.DataFrame(eq_trades)[['Stock', 'Qty', 'Entry', 'Target', 'TSL']], hide_index=True)
+    else: st.info("No active equity trades.")
+        
+with col2:
+    st.subheader("📈 Indices (FO)")
+    if idx_trades: st.dataframe(pd.DataFrame(idx_trades)[['Stock', 'Qty', 'Entry', 'Target', 'TSL']], hide_index=True)
+    else: st.info("No active index trades.")
+        
+with col3:
+    st.subheader("🛢️ Commodities (FO)")
+    if com_trades: st.dataframe(pd.DataFrame(com_trades)[['Stock', 'Qty', 'Entry', 'Target', 'TSL']], hide_index=True)
+    else: st.info("No active commodity trades.")
+
+# Auto-Rerun Loop
+# If market is open, rerun every 60 seconds. If closed, rerun every 5 minutes to check if it's time to wake up.
+sleep_time = 60 if any_market_open else 300
+time.sleep(sleep_time)
+st.rerun()
