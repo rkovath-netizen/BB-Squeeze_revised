@@ -11,8 +11,8 @@ import smtplib
 from email.mime.text import MIMEText
 
 # --- Page Config ---
-st.set_page_config(page_title="Upstox Algo Scanner", layout="wide")
-st.title("📈 Live Upstox Algo Scanner")
+st.set_page_config(page_title="Ramkumar Kovath's Algo Scanner", layout="wide")
+st.title("📈 Ramkumar Kovath's Live Algo Scanner")
 
 # --- Timezone Setup ---
 IST = pytz.timezone('Asia/Kolkata')
@@ -31,7 +31,15 @@ headers = {"Authorization": f"Bearer {ACCESS_TOKEN}", "Accept": "application/jso
 STATE_FILE = "active_trades.json"
 HISTORY_FILE = "live_trades_history.csv"
 
-# --- Email Alert System ---
+# --- Forward Log Session State ---
+# Ensures the file name stays the same across the 60-second automatic reruns
+if 'forward_log_file' not in st.session_state:
+    run_timestamp = dt.datetime.now(IST).strftime("%Y%m%d_%H%M%S")
+    st.session_state.forward_log_file = f"bbsqueeze_scanner_{run_timestamp}.csv"
+
+FORWARD_LOG_FILE = st.session_state.forward_log_file
+
+# --- Alert & Logging Systems ---
 def send_email_alert(subject, body):
     try:
         msg = MIMEText(body)
@@ -45,7 +53,6 @@ def send_email_alert(subject, body):
     except Exception as e:
         st.sidebar.error(f"Failed to send email alert: {e}")
 
-# --- State Management ---
 def load_state():
     if os.path.exists(STATE_FILE):
         with open(STATE_FILE, 'r') as f:
@@ -59,6 +66,10 @@ def save_state(state):
 def log_completed_trade(trade_record):
     df = pd.DataFrame([trade_record])
     df.to_csv(HISTORY_FILE, mode='a', header=not os.path.exists(HISTORY_FILE), index=False)
+
+def log_new_trigger(trade_record):
+    df = pd.DataFrame([trade_record])
+    df.to_csv(FORWARD_LOG_FILE, mode='a', header=not os.path.exists(FORWARD_LOG_FILE), index=False)
 
 if 'active_trades' not in st.session_state:
     st.session_state.active_trades = load_state()
@@ -188,7 +199,7 @@ def run_live_scan_cycle(instruments):
         row15 = past_15m.iloc[-1]
         row60 = past_60m.iloc[-1]
         
-        # --- FIX: Safety Check for pandas_ta ---
+        # Safety Check for pandas_ta
         bb5 = ta.bbands(df5['close'], length=20, std=2)
         if bb5 is None or 'BBU_20_2.0' not in bb5.columns: continue
         ubb5 = bb5['BBU_20_2.0'].iloc[-2]
@@ -210,7 +221,6 @@ def run_live_scan_cycle(instruments):
         sma20_60 = ta.sma(df60['close'], length=20)
         if sma20_60 is None: continue
         sma20_60_val = sma20_60.loc[row60.name]
-        # ----------------------------------------
         
         cond_1h = row60['close'] > sma20_60_val
         cond_15m_bb = bb_width15 < 0.04
@@ -229,12 +239,16 @@ def run_live_scan_cycle(instruments):
                 else: qty = int(500 // (risk_per_unit * lot_size)) * lot_size
                 
                 if qty > 0:
-                    active_trades[symbol] = {
+                    new_trade = {
                         'Entry Time': now_ist.strftime("%Y-%m-%d %H:%M:%S"), 'Category': category,
                         'Stock': symbol, 'Side': 'BUY', 'Qty': qty, 'Entry': entry_price, 
                         'Target': round(entry_price * 1.05, 2), 'TSL': tsl
                     }
+                    active_trades[symbol] = new_trade
                     save_state(active_trades)
+                    
+                    # Instantly write the new trigger to the forward log CSV
+                    log_new_trigger(new_trade)
                     
                     body = f"Stock: {symbol}\nQuantity: {qty}\nEntry Price: {entry_price}\nTarget: {round(entry_price * 1.05, 2)}\nTSL: {tsl}"
                     send_email_alert(f"🚨 ENTRY ALERT: {symbol}", body)
@@ -243,8 +257,6 @@ def run_live_scan_cycle(instruments):
     st.session_state.active_trades = active_trades
 
 # --- Streamlit UI & Auto-Run Loop ---
-
-# Determine if *any* market is currently open
 any_market_open = is_market_open('Equity') or is_market_open('Index') or is_market_open('Commodity')
 
 st.sidebar.header("System Status")
@@ -254,15 +266,30 @@ else:
     st.sidebar.warning(f"🔴 Markets Closed. (Current IST: {dt.datetime.now(IST).strftime('%H:%M:%S')})")
     st.sidebar.info("The system is standing by and will automatically resume scanning when markets open.")
 
-# Download Log Button
+# File Downloads UI
+st.sidebar.markdown("---")
+st.sidebar.subheader("Logs & Records")
+
+# Download History Log (Closed Trades)
 if os.path.exists(HISTORY_FILE):
-    df_log = pd.read_csv(HISTORY_FILE)
-    csv = df_log.to_csv(index=False)
+    df_history = pd.read_csv(HISTORY_FILE)
+    csv_history = df_history.to_csv(index=False)
     timestamp_str = dt.datetime.now(IST).strftime("%Y%m%d_%H%M%S")
     st.sidebar.download_button(
-        label="📥 Download Trade History",
-        data=csv,
+        label="📥 Download Trade History (Exits)",
+        data=csv_history,
         file_name=f"live_trades_history_{timestamp_str}.csv",
+        mime="text/csv",
+    )
+
+# Download Forward Log (Open Triggers)
+if os.path.exists(FORWARD_LOG_FILE):
+    df_forward = pd.read_csv(FORWARD_LOG_FILE)
+    csv_forward = df_forward.to_csv(index=False)
+    st.sidebar.download_button(
+        label="📥 Download Forward Log (Entries)",
+        data=csv_forward,
+        file_name=FORWARD_LOG_FILE,
         mime="text/csv",
     )
 
@@ -296,7 +323,6 @@ with col3:
     else: st.info("No active commodity trades.")
 
 # Auto-Rerun Loop
-# If market is open, rerun every 60 seconds. If closed, rerun every 5 minutes to check if it's time to wake up.
 sleep_time = 60 if any_market_open else 300
 time.sleep(sleep_time)
 st.rerun()
