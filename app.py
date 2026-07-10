@@ -60,8 +60,7 @@ def push_to_github(filename, commit_message="Update Log"):
             "content": base64.b64encode(content.encode("utf-8")).decode("utf-8")
         }
         if sha: payload["sha"] = sha
-        
-        # FIX: Corrected indentation here
+            
         requests.put(url, headers=gh_headers, json=payload)
     except Exception as e:
         st.sidebar.error(f"GitHub Sync Failed: {e}")
