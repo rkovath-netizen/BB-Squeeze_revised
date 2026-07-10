@@ -1,0 +1,53 @@
+UNDERLYING,Symbol,lot size,Sector
+ADANI ENTERPRISES LIMITED           ,ADANIENT,309,Metals & Mining
+ADANI PORT & SEZ LTD                ,ADANIPORTS,475,Services
+AMBUJA CEMENTS LTD                  ,AMBUJACEM,1200,Construction Materials
+AXIS BANK LIMITED                   ,AXISBANK,625,Financial Services
+BAJAJ AUTO LIMITED                  ,BAJAJ-AUTO,75,Automobile and Auto Components
+BAJAJ FINSERV LTD.                  ,BAJAJFINSV,300,Financial Services
+BAJAJ FINANCE LIMITED               ,BAJFINANCE,750,Financial Services
+BANK OF BARODA                      ,BANKBARODA,2925,Financial Services
+BHARAT ELECTRONICS LTD              ,BEL,1425,Capital Goods
+BHARTI AIRTEL LIMITED               ,BHARTIARTL,475,Telecommunication
+BHEL                                ,BHEL,2625,Capital Goods
+BHARAT PETROLEUM CORP  LT           ,BPCL,1975,Oil Gas & Consumable Fuels
+CANARA BANK                         ,CANBK,6750,Financial Services
+CIPLA LTD                           ,CIPLA,425,Healthcare
+COAL INDIA LTD                      ,COALINDIA,1350,Oil Gas & Consumable Fuels
+DLF LIMITED                         ,DLF,950,Realty
+GAIL (INDIA) LTD                    ,GAIL,3550,Oil Gas & Consumable Fuels
+GMR AIRPORTS LIMITED                ,GMRAIRPORT,6975,Services
+HINDUSTAN AERONAUTICS LTD           ,HAL,150,Capital Goods
+HCL TECHNOLOGIES LTD                ,HCLTECH,400,Information Technology
+HDFC BANK LTD                       ,HDFCBANK,650,Financial Services
+HERO MOTOCORP LIMITED               ,HEROMOTOCO,150,Automobile and Auto Components
+HINDALCO  INDUSTRIES  LTD           ,HINDALCO,700,Metals & Mining
+HINDUSTAN UNILEVER LTD.             ,HINDUNILVR,300,Fast Moving Consumer Goods
+ICICI BANK LTD.                     ,ICICIBANK,700,Financial Services
+INFOSYS LIMITED                     ,INFY,400,Information Technology
+INDIAN OIL CORP LTD                 ,IOC,4875,Oil Gas & Consumable Fuels
+ITC LTD                             ,ITC,1725,Fast Moving Consumer Goods
+JINDAL STEEL LIMITED                ,JINDALSTEL,625,Metals & Mining
+KOTAK MAHINDRA BANK LTD             ,KOTAKBANK,2000,Financial Services
+LARSEN & TOUBRO LTD.                ,LT,175,Construction
+MAHINDRA & MAHINDRA LTD             ,M&M,200,Automobile and Auto Components
+MARUTI SUZUKI INDIA LTD.            ,MARUTI,50,Automobile and Auto Components
+,nifty50,#N/A,
+NTPC LTD                            ,NTPC,1500,Power
+OIL AND NATURAL GAS CORP.           ,ONGC,2250,Oil Gas & Consumable Fuels
+POWER FIN CORP LTD.                 ,PFC,1300,Financial Services
+PUNJAB NATIONAL BANK                ,PNB,8000,Financial Services
+POWER GRID CORP. LTD.               ,POWERGRID,1900,Power
+REC LIMITED                         ,RECLTD,1575,Financial Services
+RELIANCE INDUSTRIES LTD             ,RELIANCE,500,Oil Gas & Consumable Fuels
+STATE BANK OF INDIA                 ,SBIN,750,Financial Services
+,Sensex,#N/A,
+SUN PHARMACEUTICAL IND L            ,SUNPHARMA,350,Healthcare
+SUZLON ENERGY LIMITED               ,SUZLON,12700,Capital Goods
+TATA POWER CO LTD                   ,TATAPOWER,1450,Power
+TATA STEEL LIMITED                  ,TATASTEEL,2750,Metals & Mining
+TATA CONSULTANCY SERV LT            ,TCS,225,Information Technology
+TECH MAHINDRA LIMITED               ,TECHM,600,Information Technology
+TATA MOTORS PASS VEH LTD            ,TMPV,1600,Automobile and Auto Components
+VEDANTA LIMITED                     ,VEDL,1150,Metals & Mining
+WIPRO LTD                           ,WIPRO,3000,Information Technology
